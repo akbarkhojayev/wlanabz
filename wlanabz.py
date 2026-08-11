@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-WlanAbz — O'zbekcha Airgeddon
-UI: o'zbek menyu · natijalar sahifasi toza · logo o'zgarmaydi
+WlanAbz — Wi-Fi Scanner & Attack Tool by Abz
+
+Asosiy dastur moduli (menyu, skaner, UI, animatsiya).
+Ishga tushirish:  sudo python3 main.py
 """
 
 from __future__ import annotations

@@ -87,12 +87,6 @@ cd ~/Desktop/ddos
 sudo python3 main.py
 ```
 
-yoki:
-
-```bash
-sudo python3 test2.py
-```
-
 **Root shart.** Oddiy foydalanuvchi bilan ishlamaydi.
 
 Ishga tushganda:
@@ -200,13 +194,12 @@ sudo systemctl restart NetworkManager
 
 ```
 ddos/
-├── main.py           # Kirish nuqtasi
-├── test2.py          # Asosiy menyu va skaner
-├── wifi_util.py      # Interfeys, airmon, deps
+├── main.py           # Kirish nuqtasi (sudo python3 main.py)
+├── wlanabz.py        # Asosiy dastur: menyu, skaner, UI
+├── wifi_util.py      # Interfeys, airmon, paketlar
 ├── deauth_engine.py  # Deauth stack
 ├── eviltwin.py       # Evil Twin + portal
-├── README.md         # Ushbu qo'llanma
-└── dizayn_namuna.py  # Dizayn namunalari (ixtiyoriy)
+└── README.md         # Ushbu qo'llanma
 ```
 
 ---

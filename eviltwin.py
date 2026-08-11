@@ -910,4 +910,4 @@ def run_infinite_deauth(mon_iface, bssid, channel=None, log=print):
 
 
 if __name__ == "__main__":
-    print("sudo python3 test2.py")
+    print("sudo python3 main.py")
