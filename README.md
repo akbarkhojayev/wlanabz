@@ -4,7 +4,20 @@
 
 Ubuntu / Kali uchun Wi‑Fi skaner va laboratoriya vositasi.
 
-> ⚠️ Faqat **o‘z tarmog‘ingizda** yoki **ruxsat** bilan ishlating.
+> ⚠️ Faqat **o‘z tarmog‘ingizda** yoki **yozma ruxsat** bilan ishlating.
+
+---
+
+## Disclaimer (ogohlantirish)
+
+Bu dastur **faqat ta’lim, test va o‘z tarmog‘ingizni tekshirish** maqsadida taqdim etiladi.
+
+1. **Ruxsatsiz** Wi‑Fi tarmoqlarga hujum qilish **qonunga zid** va jinoiy javobgarlikka olib kelishi mumkin.  
+2. **Yaratuvchi (Abz)** dasturning noto‘g‘ri, noqonuniy yoki zararli ishlatilishi uchun **hech qanday javobgar emas**.  
+3. Foydalanish oqibatlari (zarar, bloklash, qonuniy jazo, ma’lumot yo‘qolishi va h.k.) **to‘liq foydalanuvchi zimmasida**.  
+4. Dastur **“as is”** (qanday bo‘lsa shunday) beriladi — barqarorlik, xavfsizlik yoki ma’lum natija **kafolatlanmaydi**.  
+5. Dasturdan foydalanish orqali siz ushbu shartlarga **rozilik bildirgan** hisoblanasiz.  
+6. Agar sizning mamlakatingizda bunday vositalar cheklangan bo‘lsa — **ishlatmang**.
 
 ---
 
@@ -97,4 +110,6 @@ sudo systemctl restart NetworkManager
 [ ] Tugagach: 2 → tarmoqni tiklash
 ```
 
-**Abz** · faqat qonuniy foydalanish.
+**Yaratuvchi:** Abz  
+
+**Javobgarlik:** Yaratuvchi dasturning ishlatilishi va oqibatlari uchun javobgar emas. Faqat qonuniy maqsadda foydalaning.
