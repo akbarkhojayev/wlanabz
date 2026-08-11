@@ -112,8 +112,8 @@ def print_banner():
     os.system("clear" if os.name == "posix" else "cls")
 
     banner_art = r"""
- __        ___                _   _         
- \ \      / / | __ _ _ __    / \ | |__ ____ 
+ __        ___                _    _         
+ \ \      / / | __ _ _ __    / \  | |__ ____ 
   \ \ /\ / /| |/ _` | '_ \  / _ \ | '_ \_  / 
    \ V  V / | | (_| | | | |/ ___ \| |_) / /  
     \_/\_/  |_|\__,_|_| |_/_/   \_\_.__/___| 
@@ -122,7 +122,7 @@ def print_banner():
     console.print(f"[cyan][bold]{banner_art}[/bold][/cyan]")
     console.print("[bold green]" + "=" * 57 + "[/bold green]")
     console.print(
-        "[bold green]   Wi-Fi Dual-Band Scanner & Security Tool by WlanAbz "
+        "[bold green]   Wi-Fi Dual-Band Scanner & Security Tool by Abz "
         " [/bold green]"
     )
     console.print("[bold green]" + "=" * 57 + "\n[/bold green]")
