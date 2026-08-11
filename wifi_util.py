@@ -132,7 +132,7 @@ def open_side_terminal(
     """
     term = detect_terminal()
     if not term:
-        log("[!] Terminal yo'q — sudo apt install -y xterm")
+        log("[!] Terminal topilmadi — o'rnating: sudo apt install -y xterm")
         return None
 
     display = os.environ.get("DISPLAY") or ":0"
@@ -217,12 +217,12 @@ def open_side_terminal(
                 )
                 time.sleep(0.3)
             if proc.poll() is not None:
-                log(f"[!] Terminal darhol yopildi ({base})")
+                log(f"[!] Yon oyna darhol yopildi ({base})")
                 return None
-        log(f"[+] Yon terminal: {base} — «{title}»")
+        log(f"[+] Yon oyna ochildi: {base} — «{title}»")
         return proc
     except Exception as e:
-        log(f"[!] Terminal ochilmadi ({base}): {e}")
+        log(f"[!] Yon oyna ochilmadi ({base}): {e}")
         return None
 
 
@@ -293,11 +293,11 @@ def ensure_dependencies(log=print) -> bool:
 
     status = []
     for tool in ("airmon-ng", "airodump-ng", "aireplay-ng", "hostapd", "dnsmasq", "mdk4"):
-        status.append(f"{tool}={'OK' if which(tool) else 'YOQ'}")
-    log("[+] Deps: " + ", ".join(status))
+        status.append(f"{tool}={'bor' if which(tool) else 'yoq'}")
+    log("[+] Paketlar: " + ", ".join(status))
     if which("mdk4") is None:
-        log("[!] mdk4 yo'q — deauth faqat aireplay bilan ishlaydi")
-        log("    sudo apt install -y mdk4")
+        log("[!] mdk4 yo'q — uzish faqat aireplay bilan ishlaydi")
+        log("    O'rnatish: sudo apt install -y mdk4")
     return True
 
 
@@ -444,7 +444,7 @@ def airgeddon_check_kill(log: Callable = print, iface: Optional[str] = None) -> 
     """
     me = os.getpid()
     parent = os.getppid()
-    log("[*] airgeddon check kill (xavfsiz)...")
+    log("[*] Interferensiyani to'xtatish (xavfsiz)...")
 
     targets = [iface] if iface else list_wifi_ifaces(include_mon=True)
     for n in targets:
@@ -506,7 +506,7 @@ def airgeddon_check_kill(log: Callable = print, iface: Optional[str] = None) -> 
     run(["rfkill", "unblock", "all"])
     run(["iw", "reg", "set", "US"])
     time.sleep(0.6)
-    log("[+] Interferensiya to'xtatildi (NM/wpa)")
+    log("[+] Interferensiya to'xtatildi (tarmoq boshqaruvchisi)")
 
 
 def kill_interfering(kill_nm: bool = True, iface: Optional[str] = None) -> None:
@@ -559,7 +559,7 @@ def airmon_start(iface: str, log: Callable = print) -> Optional[str]:
 
     if iface_type(iface) == "monitor":
         run(["ip", "link", "set", iface, "up"])
-        log(f"[+] Allaqachon monitor: {iface}")
+        log(f"[+] Allaqachon kuzatuv (monitor) rejimida: {iface}")
         return iface
 
     airgeddon_check_kill(log=log, iface=iface)
@@ -567,7 +567,7 @@ def airmon_start(iface: str, log: Callable = print) -> Optional[str]:
 
     mon = None
     if which("airmon-ng"):
-        log(f"[*] airmon-ng start {iface} ...")
+        log(f"[*] Monitor yoqilmoqda (airmon-ng): {iface} ...")
         code, out, err = run_out(["airmon-ng", "start", iface], timeout=45)
         text = (out or "") + "\n" + (err or "")
         m = re.search(
@@ -586,11 +586,11 @@ def airmon_start(iface: str, log: Callable = print) -> Optional[str]:
             run(["ip", "link", "set", mon, "up"])
             if iface_type(mon) == "monitor":
                 set_channel(mon, 6, force_raw=True)
-                log(f"[+] airmon OK: {mon} (type=monitor)")
+                log(f"[+] Monitor tayyor: {mon}")
                 return mon
-            log(f"[!] airmon nom topildi lekin type={iface_type(mon)}: {mon}")
+            log(f"[!] Interfeys topildi, lekin rejim noto'g'ri: {mon} ({iface_type(mon)})")
 
-    log(f"[*] Zaxira: iw monitor {iface}")
+    log(f"[*] Zaxira usul: iw orqali monitor ({iface})")
     run(["nmcli", "device", "set", iface, "managed", "no"])
     run(["ip", "link", "set", iface, "down"])
     run(["ip", "addr", "flush", "dev", iface])
@@ -601,7 +601,7 @@ def airmon_start(iface: str, log: Callable = print) -> Optional[str]:
         time.sleep(0.3)
         if iface_type(iface) == "monitor":
             set_channel(iface, 6, force_raw=True)
-            log(f"[+] iw monitor OK: {iface}")
+            log(f"[+] Monitor tayyor (iw): {iface}")
             return iface
 
     phy = find_phy(iface)
@@ -614,16 +614,16 @@ def airmon_start(iface: str, log: Callable = print) -> Optional[str]:
     if iface_exists(mon_name):
         run(["ip", "link", "set", mon_name, "up"])
         if iface_type(mon_name) == "monitor":
-            log(f"[+] mon VIF: {mon_name}")
+            log(f"[+] Qo'shimcha monitor interfeys: {mon_name}")
             return mon_name
 
-    log("[-] Monitor yoqilmadi (airmon + iw)")
+    log("[-] Monitor rejimini yoqib bo'lmadi")
     return None
 
 
 def airmon_stop(mon_iface: Optional[str] = None, log: Callable = print) -> None:
-    """airgeddon: airmon-ng stop + NM restart."""
-    log("[*] airmon stop + tarmoq tiklash...")
+    """airmon-ng stop + tarmoqni tiklash."""
+    log("[*] Monitor to'xtatilmoqda, tarmoq tiklanmoqda...")
     if mon_iface and iface_exists(mon_iface) and which("airmon-ng"):
         run(["airmon-ng", "stop", mon_iface], timeout=30)
     for n in list(list_wifi_ifaces(include_mon=True)):
@@ -664,7 +664,7 @@ def airmon_stop(mon_iface: Optional[str] = None, log: Callable = print) -> None:
     run(["systemctl", "start", "wpa_supplicant"])
     run(["service", "NetworkManager", "restart"])
     time.sleep(1.2)
-    log("[+] NetworkManager tiklandi")
+    log("[+] Tarmoq boshqaruvchisi tiklandi")
 
 
 def to_monitor(iface: str, log=print) -> Optional[str]:
@@ -696,7 +696,7 @@ def mon_to_managed(mon_name: str, log=print) -> Optional[str]:
                 base = cand
                 break
 
-    log(f"[*] Monitor → managed: {mon_name} → {base}")
+    log(f"[*] Monitor → oddiy rejim: {mon_name} → {base}")
 
     # 1) airmon-ng stop
     if which("airmon-ng"):
@@ -773,9 +773,9 @@ def recreate_station(
             run(["nmcli", "device", "set", cand, "managed", "no"])
             run(["ip", "addr", "flush", "dev", cand])
             run(["ip", "link", "set", cand, "up"])
-            log(f"[+] Station tayyor: {cand}")
+            log(f"[+] Stansiya interfeysi tayyor: {cand}")
             return cand
-        log(f"[*] Phy dan yaratilmoqda: {cand} @ {phy}")
+        log(f"[*] Interfeys yaratilmoqda: {cand} @ {phy}")
         r = run(
             ["iw", "phy", phy, "interface", "add", cand, "type", "managed"],
             quiet=False,
@@ -784,10 +784,10 @@ def recreate_station(
         if iface_exists(cand):
             run(["nmcli", "device", "set", cand, "managed", "no"])
             run(["ip", "link", "set", cand, "up"])
-            log(f"[+] Station yaratildi: {cand}")
+            log(f"[+] Stansiya yaratildi: {cand}")
             return cand
         if r.returncode != 0:
-            log(f"[!] {cand} yaratilmadi")
+            log(f"[!] {cand} yaratib bo'lmadi")
     return None
 
 
@@ -846,7 +846,7 @@ def ensure_ap_iface(
             return n
 
     # 4) phy recreate
-    log("[!] Station yo'q — phy dan qayta...")
+    log("[!] Stansiya yo'q — qayta yaratilmoqda...")
     return recreate_station(preferred or (base_name(mon) if mon else None), log=log)
 
 
@@ -924,11 +924,11 @@ def add_monitor_vif(phy: str, channel: int = 6, log=print) -> Optional[str]:
             quiet=False,
         )
         if r.returncode != 0:
-            log("[!] mon VIF xato")
+            log("[!] Qo'shimcha monitor yaratilmadi")
             return None
     run(["ip", "link", "set", mon, "up"])
     set_channel(mon, channel, force_raw=True)
-    log(f"[+] Deauth mon VIF: {mon}")
+    log(f"[+] Uzish uchun monitor: {mon}")
     return mon
 
 
@@ -998,10 +998,10 @@ def set_txpower_max(iface: str, log=print) -> None:
             quiet=False,
         )
         if r.returncode == 0:
-            log(f"[+] TX power: {dbm} dBm @ {iface}")
+            log(f"[+] Uzatish quvvati: {dbm} dBm @ {iface}")
             return
     run(["iw", "dev", iface, "set", "txpower", "auto"])
-    log(f"[*] TX power auto @ {iface}")
+    log(f"[*] Uzatish quvvati: avto @ {iface}")
 
 
 def split_ap_deauth_ifaces(
@@ -1054,7 +1054,7 @@ def aggressive_deauth_burst(
 ) -> None:
     if not mon or not bssid or not iface_exists(mon):
         return
-    log(f"[*] Kuchli deauth {seconds}s → {bssid} @ {mon}")
+    log(f"[*] Kuchli uzish {seconds}s → {bssid} @ {mon}")
     end = time.time() + seconds
     use_mdk4 = which("mdk4") is not None
     clients = client_macs or []
@@ -1097,7 +1097,7 @@ def start_continuous_deauth(
     use_mdk4 = which("mdk4") is not None
 
     def loop():
-        log(f"[+] Davomiy deauth START @ {mon}")
+        log(f"[+] Davomiy uzish boshlandi @ {mon}")
         while not stop_event.is_set():
             run(
                 [
@@ -1133,7 +1133,7 @@ def start_continuous_deauth(
                 except Exception:
                     pass
             stop_event.wait(1.2)
-        log("[*] Davomiy deauth STOP")
+        log("[*] Davomiy uzish to'xtatildi")
 
     t = threading.Thread(target=loop, daemon=True)
     t.start()

