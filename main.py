@@ -4,11 +4,11 @@ WlanAbz — O'zbekcha Airgeddon.
 Kirish: sudo python3 main.py
 """
 
-from test2 import main, restore_all, _active_evil_twin, console
+from test2 import start, restore_all, _active_evil_twin, console
 
 if __name__ == "__main__":
     try:
-        main()
+        start()
     except KeyboardInterrupt:
         console.print("\n[yellow][!] Ctrl+C[/yellow]")
         if _active_evil_twin:

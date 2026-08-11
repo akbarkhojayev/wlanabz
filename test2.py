@@ -55,11 +55,125 @@ def clear():
 def print_logo():
     console.print(f"[bold bright_cyan]{BANNER}[/bold bright_cyan]")
     console.print("[bold green]" + ("=" * 57) + "[/bold green]")
-    dist = wu.detect_distro().upper()
     console.print(
-        f"[bold green]   Wi-Fi Dual-Band Tool by WlanAbz  ·  {dist}[/bold green]"
+        "[bold green]       Wi-Fi Scanner & Attack Tool by Abz[/bold green]"
     )
     console.print("[bold green]" + ("=" * 57) + "[/bold green]\n")
+
+
+def _banner_lines():
+    return BANNER.strip("\n").split("\n")
+
+
+def _term_size():
+    try:
+        return console.size.width, console.size.height
+    except Exception:
+        return 80, 24
+
+
+SUBTITLE = "Wi-Fi Scanner & Attack Tool by Abz"
+
+
+def _center_block(lines, styles=None, extra_lines=None):
+    """
+    Blokni terminal markazida chiqarish.
+    lines: logo qatorlari
+    styles: har bir logo qatori uchun style (yoki bitta style str)
+    extra_lines: [(text, style), ...] — logo ostida (taglavha)
+    """
+    width, height = _term_size()
+    extra_lines = extra_lines or []
+    block_h = len(lines) + len(extra_lines)
+    max_w = max(
+        [len(ln) for ln in lines]
+        + [len(t) for t, _ in extra_lines]
+        + [0]
+    )
+    left = max(0, (width - max_w) // 2)
+    top = max(0, (height - block_h) // 2)
+    pad = " " * left
+
+    if isinstance(styles, str) or styles is None:
+        styles = [styles or "bold bright_cyan"] * len(lines)
+
+    for _ in range(top):
+        console.print()
+    for line, st in zip(lines, styles):
+        console.print(f"{pad}[{st}]{line}[/{st}]")
+    for text, st in extra_lines:
+        # har bir extra qatorni o'z kengligi bo'yicha markazlash
+        el = max(0, (width - len(text)) // 2)
+        console.print(f"{' ' * el}[{st}]{text}[/{st}]")
+
+
+def intro_animation():
+    """
+    Boshlang'ich animatsiya (markazda):
+      1) logo kattalashib ochiladi
+      2) taglavha paydo bo'ladi
+      3) flash → dastur
+    === ramka yo'q.
+    """
+    lines = _banner_lines()
+    n = len(lines)
+
+    # 1) markazdan vertikal ochilish (faqat logo)
+    for step in range(1, n + 1):
+        clear()
+        start = (n - step) // 2
+        end = start + step
+        frame = []
+        for i, line in enumerate(lines):
+            if start <= i < end:
+                frame.append(line)
+            else:
+                frame.append(" " * len(line) if line.strip() else "")
+        _center_block(frame)
+        time.sleep(0.12)
+
+    # 2) to'liq logo
+    clear()
+    _center_block(lines)
+    time.sleep(0.25)
+
+    # 3) taglavha — harfma-harf (markazda)
+    typed = ""
+    for ch in SUBTITLE:
+        typed += ch
+        clear()
+        _center_block(
+            lines,
+            extra_lines=[(typed, "bold green")],
+        )
+        time.sleep(0.02)
+
+    # 4) flash
+    for style in ("bold bright_white", "bold white", "bold bright_cyan"):
+        clear()
+        _center_block(
+            lines,
+            styles=style,
+            extra_lines=[(SUBTITLE, "bold green")],
+        )
+        time.sleep(0.14)
+
+    clear()
+    _center_block(
+        lines,
+        extra_lines=[(SUBTITLE, "bold green")],
+    )
+    time.sleep(0.55)
+    clear()
+
+
+def start():
+    """Animatsiya → asosiy menyu."""
+    try:
+        intro_animation()
+    except KeyboardInterrupt:
+        clear()
+    main()
 
 
 # ═══════════════════════════════════════════════════════
@@ -705,18 +819,8 @@ def run_evil_twin(bssid, info, mon_iface):
 
 def main():
     page()  # logo + bo'sh
-    dist = wu.detect_distro()
-    a = "✓" if wu.which("airmon-ng") else "✗"
-    d = "✓" if wu.which("airodump-ng") else "✗"
-    h = "✓" if wu.which("hostapd") else "✗"
-    m = "✓" if wu.which("mdk4") else "✗"
-    console.print(
-        f"  [bright_black]{dist}  ·  airmon {a}  airodump {d}  "
-        f"hostapd {h}  mdk4 {m}[/bright_black]\n"
-    )
     item("1", "Skaner va hujum", "green")
-    item("2", "Faqat monitor", "cyan")
-    item("3", "Tarmoqni tiklash", "yellow")
+    item("2", "Tarmoqni tiklash", "yellow")
     item("0", "Chiqish", "white")
 
     c = ask("Tanlov")
@@ -730,17 +834,6 @@ def main():
         return
 
     if c == "2":
-        mon = pick_and_enable_monitor()
-        if mon:
-            page("Monitor tayyor")
-            ok(mon)
-            console.print(f"  Buyruq: sudo airodump-ng {mon}")
-            pause()
-        restore_all()
-        pause()
-        return main()
-
-    if c == "3":
         restore_all()
         pause()
         return main()
@@ -754,7 +847,7 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        start()
     except KeyboardInterrupt:
         console.print()
         if _active_evil_twin:
